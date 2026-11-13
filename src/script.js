@@ -2,7 +2,7 @@
 import { supabase } from './service/supabase.service.js';
 
 // CONFIGURACIÓN
-const BUCKET = 'app-arjun-marketing';
+const BUCKET = 'public-arjun';
 const CARPETA = '327/21';
 const DURACION_IMAGEN = 5000;
 const ROTACION = 'rotate(90deg)';
