@@ -13,6 +13,7 @@ let timeoutCarrusel = null;
 let carruselIniciado = false;
 const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
+const temporizadoresFinVideo = new WeakMap();
 
 // Obtener archivos de Supabase
 async function obtenerArchivos() {
@@ -161,8 +162,12 @@ function crearCarrusel(archivos) {
             });
 
             video.addEventListener('playing', dibujarFotograma);
+            video.addEventListener('playing', () => {
+                programarFinVideo(video, slide);
+            });
             video.addEventListener('pause', () => {
                 detenerAnimacionVideo(video);
+                limpiarTemporizadorFinVideo(video);
             });
             video.addEventListener('loadeddata', () => {
                 if (!video.paused && !video.ended) {
@@ -177,9 +182,7 @@ function crearCarrusel(archivos) {
 
             // Avanzar cuando termine el video
             video.addEventListener('ended', () => {
-                if (slide.classList.contains('active')) {
-                    siguienteElemento();
-                }
+                avanzarAlFinalDelVideo(video, slide);
             });
 
             // Si ocurre un error de reproducción, avanzar
@@ -224,6 +227,57 @@ function detenerAnimacionVideo(video) {
         cancelAnimationFrame(frame);
         animacionesVideo.delete(video);
     }
+}
+
+function limpiarTemporizadorFinVideo(video) {
+    const temporizador = temporizadoresFinVideo.get(video);
+
+    if (temporizador) {
+        clearTimeout(temporizador);
+        temporizadoresFinVideo.delete(video);
+    }
+}
+
+// Algunos navegadores de Smart TV pueden emitir `ended` antes de actualizar
+// completamente el tiempo actual. Se valida la duración real antes de cambiar
+// de slide y se deja un temporizador de respaldo para completar el video.
+function programarFinVideo(video, slide) {
+    limpiarTemporizadorFinVideo(video);
+
+    const duracion = video.duration;
+
+    if (!Number.isFinite(duracion) || duracion <= 0) {
+        return;
+    }
+
+    const segundosRestantes = Math.max(
+        0.25,
+        duracion - video.currentTime + 0.15
+    );
+
+    const temporizador = setTimeout(() => {
+        avanzarAlFinalDelVideo(video, slide);
+    }, segundosRestantes * 1000);
+
+    temporizadoresFinVideo.set(video, temporizador);
+}
+
+function avanzarAlFinalDelVideo(video, slide) {
+    if (!carruselIniciado || !slide.classList.contains('active')) {
+        return;
+    }
+
+    const duracion = video.duration;
+    const segundosRestantes = duracion - video.currentTime;
+
+    // No se avanza si el evento llegó antes de que el video termine.
+    if (Number.isFinite(duracion) && segundosRestantes > 0.25) {
+        programarFinVideo(video, slide);
+        return;
+    }
+
+    limpiarTemporizadorFinVideo(video);
+    siguienteElemento();
 }
 
 // Reproducir siempre en silencio. Los reintentos son automáticos para evitar
@@ -291,6 +345,7 @@ function mostrarElemento(indice) {
 
         if (video) {
             detenerAnimacionVideo(video);
+            limpiarTemporizadorFinVideo(video);
 
             const reintento = reintentosVideo.get(video);
 
