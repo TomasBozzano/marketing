@@ -108,6 +108,10 @@ video.fade-image {
     display: block;
 }
 
+canvas.fade-image {
+    display: block;
+}
+
 /* Evita que navegadores WebKit/Smart TV dibujen controles nativos. */
 video::-webkit-media-controls,
 video::-webkit-media-controls-enclosure,

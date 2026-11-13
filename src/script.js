@@ -34,8 +34,21 @@ let indiceActual = 0;
 let timeoutCarrusel = null;
 let carruselIniciado = false;
 let ultimaInteraccionInicio = 0;
+const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
 const temporizadoresFinVideo = new WeakMap();
+const videosPorSlide = new WeakMap();
+
+const ES_ENTORNO_TV = (() => {
+    const parametros = new URLSearchParams(window.location.search);
+    const userAgent = navigator.userAgent || '';
+    const esAndroidSinMobile = /Android/i.test(userAgent) &&
+        !/Mobile|Tablet/i.test(userAgent);
+
+    return parametros.get('tv') === '1' ||
+        /Android TV|GoogleTV|SmartTV|HbbTV|Tizen|Web0S|NetCast|BRAVIA|Viera/i.test(userAgent) ||
+        esAndroidSinMobile;
+})();
 
 function obtenerExtension(nombre) {
     return nombre
@@ -151,6 +164,10 @@ function crearCarrusel(archivos) {
 
         if (archivo.tipo === 'VIDEO') {
             const video = document.createElement('video');
+            const canvas = ES_ENTORNO_TV
+                ? document.createElement('canvas')
+                : null;
+            const contexto = canvas?.getContext('2d') || null;
 
             // El autoplay se activa únicamente después de pulsar el botón de
             // inicio. Así el navegador de la TV recibe una interacción válida.
@@ -161,6 +178,7 @@ function crearCarrusel(archivos) {
             video.controls = false;
             video.playsInline = true;
             video.preload = 'metadata';
+            video.crossOrigin = canvas ? 'anonymous' : '';
             video.disablePictureInPicture = true;
             video.disableRemotePlayback = true;
             video.tabIndex = -1;
@@ -175,10 +193,63 @@ function crearCarrusel(archivos) {
             );
             video.setAttribute('aria-hidden', 'true');
             video.src = archivo.url;
+
+            videosPorSlide.set(slide, video);
+
+            const dibujarFotograma = () => {
+                if (!canvas || !contexto || video.paused || video.ended) {
+                    return;
+                }
+
+                if (
+                    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+                    canvas.width > 0 &&
+                    canvas.height > 0
+                ) {
+                    try {
+                        contexto.drawImage(
+                            video,
+                            0,
+                            0,
+                            canvas.width,
+                            canvas.height
+                        );
+                    } catch (error) {
+                        console.error(
+                            'No se pudo dibujar el video para TV:',
+                            archivo.nombre,
+                            error
+                        );
+                        detenerAnimacionVideo(video);
+                        return;
+                    }
+                }
+
+                animacionesVideo.set(
+                    video,
+                    requestAnimationFrame(dibujarFotograma)
+                );
+            };
+
+            if (canvas) {
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                });
+
+                video.addEventListener('playing', dibujarFotograma);
+                video.addEventListener('loadeddata', () => {
+                    if (!video.paused && !video.ended) {
+                        dibujarFotograma();
+                    }
+                });
+            }
+
             video.addEventListener('playing', () => {
                 programarFinVideo(video, slide);
             });
             video.addEventListener('pause', () => {
+                detenerAnimacionVideo(video);
                 limpiarTemporizadorFinVideo(video);
             });
             video.addEventListener('canplay', () => {
@@ -209,7 +280,7 @@ function crearCarrusel(archivos) {
             });
 
             video.load();
-            elementoMedia = video;
+            elementoMedia = canvas || video;
             elementoMedia.dataset.videoSource = archivo.nombre;
 
         } else {
@@ -231,6 +302,23 @@ function crearCarrusel(archivos) {
     elementosCarrusel = Array.from(
         contenedor.querySelectorAll('.fade-carousel')
     );
+}
+
+function obtenerVideoDeSlide(slide) {
+    if (!slide) {
+        return null;
+    }
+
+    return videosPorSlide.get(slide) || slide.querySelector('video');
+}
+
+function detenerAnimacionVideo(video) {
+    const frame = animacionesVideo.get(video);
+
+    if (frame) {
+        cancelAnimationFrame(frame);
+        animacionesVideo.delete(video);
+    }
 }
 
 function limpiarTemporizadorFinVideo(video) {
@@ -287,7 +375,7 @@ function avanzarAlFinalDelVideo(video, slide) {
 // Reproducir siempre en silencio. Los reintentos son automáticos para evitar
 // depender de una pulsación en la pantalla de la TV.
 function intentarReproducirVideo(video) {
-    const videoActual = elementosCarrusel[indiceActual]?.querySelector('video');
+    const videoActual = obtenerVideoDeSlide(elementosCarrusel[indiceActual]);
 
     if (!carruselIniciado || videoActual !== video || !video.paused || video.ended) {
         return;
@@ -306,7 +394,7 @@ function intentarReproducirVideo(video) {
     }
 
     reproduccion.catch(error => {
-        if (videoActual !== elementosCarrusel[indiceActual]?.querySelector('video')) {
+        if (videoActual !== obtenerVideoDeSlide(elementosCarrusel[indiceActual])) {
             return;
         }
 
@@ -354,7 +442,7 @@ function mostrarElemento(indice) {
     elementosCarrusel.forEach(slide => {
         slide.classList.remove('active');
 
-        const video = slide.querySelector('video');
+        const video = obtenerVideoDeSlide(slide);
 
         if (video) {
             limpiarTemporizadorFinVideo(video);
@@ -383,7 +471,7 @@ function mostrarElemento(indice) {
         return;
     }
 
-    const video = slideActual.querySelector('video');
+    const video = obtenerVideoDeSlide(slideActual);
 
     if (video) {
         intentarReproducirVideo(video);
@@ -419,7 +507,7 @@ function iniciarCarrusel() {
 
     carruselIniciado = true;
 
-    const videoActual = elementosCarrusel[indiceActual]?.querySelector('video');
+    const videoActual = obtenerVideoDeSlide(elementosCarrusel[indiceActual]);
 
     if (videoActual) {
         // Ocultar el botón solamente cuando el navegador confirma que el video
