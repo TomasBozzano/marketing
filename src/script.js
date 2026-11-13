@@ -6,6 +6,28 @@ const BUCKET = 'public-arjun';
 const CARPETA = '327/21';
 const DURACION_IMAGEN = 5000;
 const ROTACION = 'rotate(90deg)';
+const EXTENSIONES_VIDEO = new Set([
+    'mp4',
+    'm4v',
+    'webm',
+    'mov',
+    'ogv',
+    'ogg',
+    'mkv',
+    'avi',
+    '3gp',
+    'ts',
+    'm3u8'
+]);
+const EXTENSIONES_IMAGEN = new Set([
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'avif',
+    'bmp'
+]);
 
 let elementosCarrusel = [];
 let indiceActual = 0;
@@ -14,6 +36,52 @@ let carruselIniciado = false;
 const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
 const temporizadoresFinVideo = new WeakMap();
+
+function obtenerExtension(nombre) {
+    return nombre
+        .split('.')
+        .pop()
+        ?.toLowerCase() || '';
+}
+
+function obtenerTipoArchivo(archivo) {
+    const mimeType = archivo.metadata?.mimetype?.toLowerCase() || '';
+    const extension = obtenerExtension(archivo.name);
+
+    if (mimeType.startsWith('video/') || EXTENSIONES_VIDEO.has(extension)) {
+        return 'VIDEO';
+    }
+
+    if (mimeType.startsWith('image/') || EXTENSIONES_IMAGEN.has(extension)) {
+        return 'IMAGEN';
+    }
+
+    return null;
+}
+
+function obtenerMimeType(archivo) {
+    const mimeType = archivo.metadata?.mimetype || '';
+
+    if (mimeType) {
+        return mimeType;
+    }
+
+    const mimeTypesPorExtension = {
+        mp4: 'video/mp4',
+        m4v: 'video/mp4',
+        webm: 'video/webm',
+        mov: 'video/quicktime',
+        ogv: 'video/ogg',
+        ogg: 'video/ogg',
+        mkv: 'video/x-matroska',
+        avi: 'video/x-msvideo',
+        '3gp': 'video/3gpp',
+        ts: 'video/mp2t',
+        m3u8: 'application/vnd.apple.mpegurl'
+    };
+
+    return mimeTypesPorExtension[obtenerExtension(archivo.name)] || '';
+}
 
 // Obtener archivos de Supabase
 async function obtenerArchivos() {
@@ -36,10 +104,7 @@ async function obtenerArchivos() {
 
         // Filtrar únicamente imágenes y videos
         const archivos = data.filter(archivo => {
-            const mimeType = archivo.metadata?.mimetype || '';
-
-            return mimeType.startsWith('image/') ||
-                   mimeType.startsWith('video/');
+            return obtenerTipoArchivo(archivo) !== null;
         });
 
         return archivos.map(archivo => {
@@ -47,11 +112,11 @@ async function obtenerArchivos() {
                 .storage
                 .from(BUCKET)
                 .getPublicUrl(`${CARPETA}/${archivo.name}`);
-            const mimeType = archivo.metadata?.mimetype || '';
+            const mimeType = obtenerMimeType(archivo);
 
             return {
                 nombre: archivo.name,
-                tipo: mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGEN',
+                tipo: obtenerTipoArchivo(archivo),
                 mimeType,
                 url: urlData.publicUrl
             };
@@ -80,6 +145,7 @@ function crearCarrusel(archivos) {
         slide.classList.add('fade-carousel');
 
         slide.dataset.indice = indice;
+        slide.dataset.tipo = archivo.tipo;
 
         let elementoMedia;
 
@@ -376,7 +442,7 @@ function mostrarElemento(indice) {
     if (video) {
         intentarReproducirVideo(video);
 
-    } else {
+    } else if (slideActual.dataset.tipo !== 'VIDEO') {
         timeoutCarrusel = setTimeout(() => {
             siguienteElemento();
         }, DURACION_IMAGEN);
