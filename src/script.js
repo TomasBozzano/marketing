@@ -38,6 +38,214 @@ const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
 const temporizadoresFinVideo = new WeakMap();
 const videosPorSlide = new WeakMap();
+const parametrosPagina = new URLSearchParams(window.location.search);
+const DEBUG_ACTIVO = parametrosPagina.get('debug') === '1';
+const ID_SESION_LOG = `tv-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`;
+let logsDiagnostico = [];
+let salidaLogs = null;
+let sincronizacionLogsEnCurso = false;
+
+function formatearLogsTxt() {
+    return [
+        `ARJUN TV - SESIÓN ${ID_SESION_LOG}`,
+        `Generado: ${new Date().toISOString()}`,
+        `URL: ${window.location.href}`,
+        '',
+        ...logsDiagnostico.map(log => JSON.stringify(log))
+    ].join('\r\n');
+}
+
+function descargarLogsTxt() {
+    const blob = new Blob(
+        [formatearLogsTxt()],
+        { type: 'text/plain;charset=utf-8' }
+    );
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+
+    enlace.href = url;
+    enlace.download = `arjun-tv-${ID_SESION_LOG}.txt`;
+    enlace.click();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function sincronizarLogsTxt() {
+    if (!DEBUG_ACTIVO || sincronizacionLogsEnCurso || logsDiagnostico.length === 0) {
+        return;
+    }
+
+    sincronizacionLogsEnCurso = true;
+
+    try {
+        const { error } = await supabase
+            .storage
+            .from(BUCKET)
+            .upload(
+                `debug/${ID_SESION_LOG}.txt`,
+                new Blob([formatearLogsTxt()], {
+                    type: 'text/plain;charset=utf-8'
+                }),
+                {
+                    contentType: 'text/plain;charset=utf-8',
+                    upsert: true
+                }
+            );
+
+        if (error) {
+            console.warn('No se pudo sincronizar el log TXT:', error);
+        }
+    } catch (error) {
+        console.warn('Error sincronizando el log TXT:', error);
+    } finally {
+        sincronizacionLogsEnCurso = false;
+    }
+}
+
+function describirElemento(elemento) {
+    if (!(elemento instanceof Element)) {
+        return '';
+    }
+
+    const identificador = elemento.id ? `#${elemento.id}` : '';
+    const clases = typeof elemento.className === 'string' && elemento.className
+        ? `.${elemento.className.trim().replace(/\s+/g, '.')}`
+        : '';
+
+    return `${elemento.tagName.toLowerCase()}${identificador}${clases}`;
+}
+
+function registrarLog(evento, detalles = {}) {
+    const registro = {
+        hora: new Date().toISOString(),
+        evento,
+        ...detalles
+    };
+
+    if (DEBUG_ACTIVO) {
+        logsDiagnostico.push(registro);
+        logsDiagnostico = logsDiagnostico.slice(-200);
+
+        renderizarLogs();
+
+        // Se actualiza una copia en Supabase cada 10 eventos. La descarga
+        // manual sigue disponible por si la política de Storage no permite
+        // escritura anónima.
+        if (logsDiagnostico.length % 10 === 0) {
+            void sincronizarLogsTxt();
+        }
+    }
+
+    console.info('[ARJUN-TV]', registro);
+}
+
+function renderizarLogs() {
+    if (!salidaLogs) {
+        return;
+    }
+
+    salidaLogs.textContent = logsDiagnostico
+        .slice(-40)
+        .map(log => JSON.stringify(log))
+        .join('\n');
+
+    salidaLogs.scrollTop = salidaLogs.scrollHeight;
+}
+
+function crearPanelDiagnostico() {
+    if (!DEBUG_ACTIVO) {
+        return;
+    }
+
+    const panel = document.createElement('section');
+    panel.id = 'panel-diagnostico-tv';
+    panel.innerHTML = `
+        <header class="panel-diagnostico-tv__header">
+            <strong>Diagnóstico TV</strong>
+            <div class="panel-diagnostico-tv__acciones">
+                <button type="button" data-debug-action="download-txt">Guardar TXT</button>
+                <button type="button" data-debug-action="clear">Limpiar</button>
+            </div>
+        </header>
+        <pre id="salida-logs-tv" aria-live="polite"></pre>
+    `;
+
+    document.body.appendChild(panel);
+    salidaLogs = panel.querySelector('#salida-logs-tv');
+
+    panel.addEventListener('click', event => {
+        const boton = event.target.closest('[data-debug-action]');
+
+        if (!boton) {
+            return;
+        }
+
+        const accion = boton.dataset.debugAction;
+        registrarLog('debug.panel.action', { accion });
+
+        if (accion === 'clear') {
+            logsDiagnostico = [];
+            renderizarLogs();
+        }
+
+        if (accion === 'download-txt') {
+            descargarLogsTxt();
+            void sincronizarLogsTxt();
+        }
+    });
+
+    renderizarLogs();
+}
+
+function instalarCapturaDeInteracciones() {
+    if (!DEBUG_ACTIVO) {
+        return;
+    }
+
+    const registrarEventoUsuario = evento => {
+        registrarLog(evento.type, {
+            objetivo: describirElemento(evento.target),
+            key: evento.key,
+            code: evento.code,
+            keyCode: evento.keyCode,
+            button: evento.button,
+            pointerType: evento.pointerType,
+            isTrusted: evento.isTrusted,
+            defaultPrevented: evento.defaultPrevented,
+            repeat: evento.repeat
+        });
+    };
+
+    window.addEventListener('keydown', registrarEventoUsuario, true);
+    window.addEventListener('keyup', registrarEventoUsuario, true);
+    window.addEventListener('click', registrarEventoUsuario, true);
+    window.addEventListener('pointerdown', registrarEventoUsuario, true);
+    window.addEventListener('pointerup', registrarEventoUsuario, true);
+    window.addEventListener('touchstart', registrarEventoUsuario, true);
+    window.addEventListener('touchend', registrarEventoUsuario, true);
+    window.addEventListener('focusin', registrarEventoUsuario, true);
+    window.addEventListener('focusout', registrarEventoUsuario, true);
+    document.addEventListener('visibilitychange', () => {
+        registrarLog('document.visibilitychange', {
+            visibilityState: document.visibilityState
+        });
+    });
+    window.addEventListener('error', evento => {
+        registrarLog('window.error', {
+            message: evento.message,
+            source: evento.filename,
+            line: evento.lineno,
+            column: evento.colno
+        });
+    });
+    window.addEventListener('unhandledrejection', evento => {
+        registrarLog('window.unhandledrejection', {
+            reason: evento.reason instanceof Error
+                ? evento.reason.message
+                : String(evento.reason)
+        });
+    });
+}
 
 const ES_ENTORNO_TV = (() => {
     const parametros = new URLSearchParams(window.location.search);
@@ -98,6 +306,11 @@ function obtenerMimeType(archivo) {
 
 // Obtener archivos de Supabase
 async function obtenerArchivos() {
+    registrarLog('storage.list.start', {
+        bucket: BUCKET,
+        carpeta: CARPETA
+    });
+
     try {
         const { data, error } = await supabase
             .storage
@@ -120,7 +333,7 @@ async function obtenerArchivos() {
             return obtenerTipoArchivo(archivo) !== null;
         });
 
-        return archivos.map(archivo => {
+        const resultado = archivos.map(archivo => {
             const { data: urlData } = supabase
                 .storage
                 .from(BUCKET)
@@ -135,8 +348,20 @@ async function obtenerArchivos() {
             };
         });
 
+        registrarLog('storage.list.success', {
+            total: resultado.length,
+            videos: resultado.filter(archivo => archivo.tipo === 'VIDEO').length,
+            imagenes: resultado.filter(archivo => archivo.tipo === 'IMAGEN').length,
+            nombres: resultado.map(archivo => archivo.nombre)
+        });
+
+        return resultado;
+
     } catch (error) {
         console.error('Error obteniendo archivos de Supabase:', error);
+        registrarLog('storage.list.error', {
+            message: error instanceof Error ? error.message : String(error)
+        });
         return [];
     }
 }
@@ -151,6 +376,16 @@ function crearCarrusel(archivos) {
     }
 
     contenedor.innerHTML = '';
+
+    registrarLog('carousel.create', {
+        entornoTV: ES_ENTORNO_TV,
+        total: archivos.length,
+        archivos: archivos.map(archivo => ({
+            nombre: archivo.nombre,
+            tipo: archivo.tipo,
+            mimeType: archivo.mimeType
+        }))
+    });
 
     archivos.forEach((archivo, indice) => {
         const slide = document.createElement('div');
@@ -192,6 +427,7 @@ function crearCarrusel(archivos) {
                 'nodownload nofullscreen noremoteplayback noplaybackrate'
             );
             video.setAttribute('aria-hidden', 'true');
+            video.dataset.videoSource = archivo.nombre;
             video.src = archivo.url;
 
             videosPorSlide.set(slide, video);
@@ -231,12 +467,22 @@ function crearCarrusel(archivos) {
                 );
             };
 
-            if (canvas) {
-                video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
+            video.addEventListener('loadedmetadata', () => {
+                registrarLog('video.loadedmetadata', {
+                    nombre: archivo.nombre,
+                    duracion: video.duration,
+                    ancho: video.videoWidth,
+                    alto: video.videoHeight,
+                    readyState: video.readyState
                 });
 
+                if (canvas) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+            });
+
+            if (canvas) {
                 video.addEventListener('playing', dibujarFotograma);
                 video.addEventListener('loadeddata', () => {
                     if (!video.paused && !video.ended) {
@@ -246,13 +492,35 @@ function crearCarrusel(archivos) {
             }
 
             video.addEventListener('playing', () => {
+                registrarLog('video.playing', {
+                    nombre: archivo.nombre,
+                    indice,
+                    duracion: video.duration,
+                    currentTime: video.currentTime,
+                    readyState: video.readyState,
+                    entornoTV: ES_ENTORNO_TV
+                });
                 programarFinVideo(video, slide);
             });
             video.addEventListener('pause', () => {
+                registrarLog('video.pause', {
+                    nombre: archivo.nombre,
+                    indice,
+                    currentTime: video.currentTime,
+                    ended: video.ended
+                });
                 detenerAnimacionVideo(video);
                 limpiarTemporizadorFinVideo(video);
             });
             video.addEventListener('canplay', () => {
+                registrarLog('video.canplay', {
+                    nombre: archivo.nombre,
+                    indice,
+                    readyState: video.readyState,
+                    carruselIniciado,
+                    slideActivo: slide.classList.contains('active')
+                });
+
                 if (carruselIniciado && slide.classList.contains('active')) {
                     intentarReproducirVideo(video);
                 }
@@ -260,12 +528,34 @@ function crearCarrusel(archivos) {
 
             // Avanzar cuando termine el video
             video.addEventListener('ended', () => {
+                registrarLog('video.ended', {
+                    nombre: archivo.nombre,
+                    indice,
+                    currentTime: video.currentTime,
+                    duracion: video.duration,
+                    slideActivo: slide.classList.contains('active')
+                });
                 avanzarAlFinalDelVideo(video, slide);
             });
 
             // Si ocurre un error de reproducción, avanzar
             video.addEventListener('error', () => {
                 console.error('Error cargando video:', archivo.nombre);
+                registrarLog('video.error', {
+                    nombre: archivo.nombre,
+                    indice,
+                    currentTime: video.currentTime,
+                    duracion: video.duration,
+                    readyState: video.readyState,
+                    networkState: video.networkState,
+                    mediaError: video.error
+                        ? {
+                            code: video.error.code,
+                            message: video.error.message
+                        }
+                        : null
+                });
+                void sincronizarLogsTxt();
 
                 const botonInicio = document.getElementById('boton-inicio');
 
@@ -356,6 +646,13 @@ function programarFinVideo(video, slide) {
 
 function avanzarAlFinalDelVideo(video, slide) {
     if (!carruselIniciado || !slide.classList.contains('active')) {
+        registrarLog('video.advance.ignored', {
+            indice: indiceActual,
+            carruselIniciado,
+            slideActivo: slide.classList.contains('active'),
+            currentTime: video.currentTime,
+            duracion: video.duration
+        });
         return;
     }
 
@@ -364,11 +661,22 @@ function avanzarAlFinalDelVideo(video, slide) {
 
     // No se avanza si el evento llegó antes de que el video termine.
     if (Number.isFinite(duracion) && segundosRestantes > 0.25) {
+        registrarLog('video.advance.delayed', {
+            indice: indiceActual,
+            currentTime: video.currentTime,
+            duracion,
+            segundosRestantes
+        });
         programarFinVideo(video, slide);
         return;
     }
 
     limpiarTemporizadorFinVideo(video);
+    registrarLog('video.advance.allowed', {
+        indiceActual,
+        currentTime: video.currentTime,
+        duracion
+    });
     siguienteElemento();
 }
 
@@ -378,6 +686,18 @@ function intentarReproducirVideo(video) {
     const videoActual = obtenerVideoDeSlide(elementosCarrusel[indiceActual]);
 
     if (!carruselIniciado || videoActual !== video || !video.paused || video.ended) {
+        registrarLog('video.play.skipped', {
+            motivo: !carruselIniciado
+                ? 'carrusel-no-iniciado'
+                : videoActual !== video
+                    ? 'video-no-activo'
+                    : !video.paused
+                        ? 'ya-reproduciendo'
+                        : 'video-terminado',
+            indice: indiceActual,
+            paused: video?.paused,
+            ended: video?.ended
+        });
         return;
     }
 
@@ -387,13 +707,51 @@ function intentarReproducirVideo(video) {
     video.autoplay = true;
     video.setAttribute('autoplay', '');
 
+    registrarLog('video.play.intent', {
+        nombre: video.dataset.videoSource || video.currentSrc || video.src,
+        indice: indiceActual,
+        paused: video.paused,
+        muted: video.muted,
+        volume: video.volume,
+        userActivation: navigator.userActivation
+            ? navigator.userActivation.isActive
+            : null,
+        entornoTV: ES_ENTORNO_TV
+    });
+
     const reproduccion = video.play();
 
     if (!reproduccion || typeof reproduccion.catch !== 'function') {
+        registrarLog('video.play.no-promise', {
+            indice: indiceActual
+        });
         return;
     }
 
+    reproduccion.then(() => {
+        registrarLog('video.play.resolved', {
+            indice: indiceActual,
+            paused: video.paused,
+            currentTime: video.currentTime,
+            userActivation: navigator.userActivation
+                ? navigator.userActivation.isActive
+                : null
+        });
+    });
+
     reproduccion.catch(error => {
+        registrarLog('video.play.rejected', {
+            indice: indiceActual,
+            name: error.name,
+            message: error.message,
+            paused: video.paused,
+            ended: video.ended,
+            userActivation: navigator.userActivation
+                ? navigator.userActivation.isActive
+                : null
+        });
+        void sincronizarLogsTxt();
+
         if (videoActual !== obtenerVideoDeSlide(elementosCarrusel[indiceActual])) {
             return;
         }
@@ -433,6 +791,10 @@ function intentarReproducirVideo(video) {
 // Mostrar elemento actual
 function mostrarElemento(indice) {
     if (elementosCarrusel.length === 0) {
+        registrarLog('carousel.show.skipped', {
+            motivo: 'sin-elementos',
+            indice
+        });
         return;
     }
 
@@ -464,8 +826,17 @@ function mostrarElemento(indice) {
     indiceActual = indice;
 
     const slideActual = elementosCarrusel[indiceActual];
+    const videoActual = obtenerVideoDeSlide(slideActual);
 
     slideActual.classList.add('active');
+
+    registrarLog('carousel.show', {
+        indice: indiceActual,
+        tipo: slideActual.dataset.tipo,
+        video: Boolean(videoActual),
+        carruselIniciado,
+        nombre: videoActual?.dataset.videoSource || videoActual?.src || null
+    });
 
     if (!carruselIniciado) {
         return;
@@ -490,6 +861,15 @@ function iniciarCarrusel() {
     const botonInicio = document.getElementById('boton-inicio');
     const ahora = Date.now();
 
+    registrarLog('carousel.start.request', {
+        indice: indiceActual,
+        carruselIniciado,
+        botonOculto: botonInicio?.hidden,
+        activo: document.activeElement
+            ? describirElemento(document.activeElement)
+            : null
+    });
+
     // Un mando puede generar keydown + click para la misma pulsación.
     // Evitamos reiniciar el video dos veces por una única orden.
     if (ahora - ultimaInteraccionInicio < 400) {
@@ -502,6 +882,11 @@ function iniciarCarrusel() {
         (carruselIniciado && botonInicio?.hidden !== false) ||
         elementosCarrusel.length === 0
     ) {
+        registrarLog('carousel.start.ignored', {
+            motivo: elementosCarrusel.length === 0
+                ? 'sin-elementos'
+                : 'ya-iniciado-y-boton-oculto'
+        });
         return;
     }
 
@@ -527,9 +912,25 @@ function iniciarCarrusel() {
     }
 
     mostrarElemento(indiceActual);
+
+    registrarLog('carousel.start.accepted', {
+        indice: indiceActual,
+        video: Boolean(videoActual),
+        botonOculto: botonInicio?.hidden
+    });
 }
 
 function manejarInteraccionInicio(evento) {
+    registrarLog('start-button.interaction', {
+        tipo: evento.type,
+        key: evento.key,
+        code: evento.code,
+        keyCode: evento.keyCode,
+        isTrusted: evento.isTrusted,
+        target: describirElemento(evento.target),
+        defaultPreventedAntes: evento.defaultPrevented
+    });
+
     if (evento.type === 'keydown') {
         const teclasInicio = new Set([
             'Enter',
@@ -556,11 +957,20 @@ function manejarInteraccionInicio(evento) {
 // Pasar al siguiente elemento
 function siguienteElemento() {
     if (elementosCarrusel.length === 0) {
+        registrarLog('carousel.next.skipped', {
+            motivo: 'sin-elementos'
+        });
         return;
     }
 
     const siguienteIndice =
         (indiceActual + 1) % elementosCarrusel.length;
+
+    registrarLog('carousel.next', {
+        anterior: indiceActual,
+        siguiente: siguienteIndice,
+        total: elementosCarrusel.length
+    });
 
     mostrarElemento(siguienteIndice);
 }
@@ -593,6 +1003,28 @@ async function inicializarCarrusel() {
 
 // Ejecutar cuando cargue el DOM
 document.addEventListener('DOMContentLoaded', () => {
+    crearPanelDiagnostico();
+    instalarCapturaDeInteracciones();
+    registrarLog('app.start', {
+        debug: DEBUG_ACTIVO,
+        entornoTV: ES_ENTORNO_TV,
+        userAgent: navigator.userAgent,
+        idioma: navigator.language,
+        pantalla: {
+            ancho: window.screen?.width,
+            alto: window.screen?.height,
+            pixelRatio: window.devicePixelRatio
+        },
+        viewport: {
+            ancho: window.innerWidth,
+            alto: window.innerHeight
+        },
+        online: navigator.onLine,
+        userActivation: navigator.userActivation
+            ? navigator.userActivation.isActive
+            : null
+    });
+
     const botonInicio = document.getElementById('boton-inicio');
 
     botonInicio?.addEventListener('pointerdown', manejarInteraccionInicio);

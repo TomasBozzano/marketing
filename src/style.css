@@ -56,6 +56,67 @@ html, body {
     display: none;
 }
 
+/* Panel visible únicamente con ?debug=1. Permite guardar el diagnóstico
+   desde el control remoto sin abrir las herramientas del navegador. */
+#panel-diagnostico-tv {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 100;
+    width: min(760px, calc(100vw - 24px));
+    max-height: 44vh;
+    padding: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(110, 255, 150, 0.8);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.9);
+    color: #b9ffc8;
+    font: 12px/1.35 Consolas, monospace;
+    pointer-events: auto;
+    touch-action: manipulation;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.panel-diagnostico-tv__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.panel-diagnostico-tv__acciones {
+    display: flex;
+    gap: 6px;
+}
+
+.panel-diagnostico-tv__acciones button {
+    padding: 5px 8px;
+    border: 1px solid #b9ffc8;
+    border-radius: 3px;
+    background: #102416;
+    color: #b9ffc8;
+    cursor: pointer;
+    font: inherit;
+    pointer-events: auto;
+    touch-action: manipulation;
+}
+
+.panel-diagnostico-tv__acciones button:focus-visible,
+.panel-diagnostico-tv__acciones button:hover {
+    outline: 2px solid white;
+    outline-offset: 1px;
+}
+
+#salida-logs-tv {
+    max-height: calc(44vh - 54px);
+    margin: 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* ================================
    SLIDES
 ================================ */
