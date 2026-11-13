@@ -33,6 +33,7 @@ let elementosCarrusel = [];
 let indiceActual = 0;
 let timeoutCarrusel = null;
 let carruselIniciado = false;
+let ultimaInteraccionInicio = 0;
 const reintentosVideo = new WeakMap();
 const temporizadoresFinVideo = new WeakMap();
 
@@ -194,7 +195,15 @@ function crearCarrusel(archivos) {
             // Si ocurre un error de reproducción, avanzar
             video.addEventListener('error', () => {
                 console.error('Error cargando video:', archivo.nombre);
+
+                const botonInicio = document.getElementById('boton-inicio');
+
                 if (slide.classList.contains('active')) {
+                    if (botonInicio) {
+                        botonInicio.hidden = false;
+                        botonInicio.focus({ preventScroll: true });
+                    }
+
                     siguienteElemento();
                 }
             });
@@ -304,6 +313,15 @@ function intentarReproducirVideo(video) {
         // AbortError aparece normalmente al cambiar de slide y no requiere
         // reintento. NotAllowedError se reintenta sin mostrar controles.
         if (error.name !== 'AbortError') {
+            const botonInicio = document.getElementById('boton-inicio');
+
+            if (botonInicio && error.name === 'NotAllowedError') {
+                // Browser puede exigir el gesto cuando entra el primer video,
+                // especialmente si el carrusel comenzó mostrando una imagen.
+                botonInicio.hidden = false;
+                botonInicio.focus({ preventScroll: true });
+            }
+
             if (error.name !== 'NotAllowedError') {
                 console.error('Error reproduciendo video:', error);
             }
@@ -382,6 +400,15 @@ function mostrarElemento(indice) {
 // interacción.
 function iniciarCarrusel() {
     const botonInicio = document.getElementById('boton-inicio');
+    const ahora = Date.now();
+
+    // Un mando puede generar keydown + click para la misma pulsación.
+    // Evitamos reiniciar el video dos veces por una única orden.
+    if (ahora - ultimaInteraccionInicio < 400) {
+        return;
+    }
+
+    ultimaInteraccionInicio = ahora;
 
     if (
         (carruselIniciado && botonInicio?.hidden !== false) ||
@@ -412,6 +439,30 @@ function iniciarCarrusel() {
     }
 
     mostrarElemento(indiceActual);
+}
+
+function manejarInteraccionInicio(evento) {
+    if (evento.type === 'keydown') {
+        const teclasInicio = new Set([
+            'Enter',
+            ' ',
+            'Select',
+            'Accept',
+            'OK'
+        ]);
+
+        const esDpadCentral = [13, 23, 66].includes(evento.keyCode);
+
+        if (!teclasInicio.has(evento.key) && !esDpadCentral) {
+            return;
+        }
+    }
+
+    // El gesto se procesa en pointerdown/keydown para que Browser lo asocie
+    // directamente con video.play(), incluso usando el control remoto.
+    evento.preventDefault();
+    evento.stopPropagation();
+    iniciarCarrusel();
 }
 
 // Pasar al siguiente elemento
@@ -447,12 +498,17 @@ async function inicializarCarrusel() {
     // Mostrar el primer elemento, pero esperar el toque inicial para empezar
     // a reproducir medios o avanzar automáticamente.
     mostrarElemento(0);
+
+    const botonInicio = document.getElementById('boton-inicio');
+    botonInicio?.focus({ preventScroll: true });
 }
 
 // Ejecutar cuando cargue el DOM
 document.addEventListener('DOMContentLoaded', () => {
     const botonInicio = document.getElementById('boton-inicio');
 
+    botonInicio?.addEventListener('pointerdown', manejarInteraccionInicio);
+    botonInicio?.addEventListener('keydown', manejarInteraccionInicio);
     botonInicio?.addEventListener('click', iniciarCarrusel);
     inicializarCarrusel();
 });
