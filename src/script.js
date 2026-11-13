@@ -10,6 +10,7 @@ const ROTACION = 'rotate(90deg)';
 let elementosCarrusel = [];
 let indiceActual = 0;
 let timeoutCarrusel = null;
+let carruselIniciado = false;
 const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
 
@@ -94,7 +95,9 @@ function crearCarrusel(archivos) {
             // El video nunca se muestra directamente: solo se usa como fuente
             // para el canvas. Así el navegador de la TV no puede abrir sus
             // controles ni mostrar el popup nativo de reproducción.
-            video.autoplay = true;
+            // El autoplay se activa únicamente después de pulsar el botón de
+            // inicio. Así el navegador de la TV recibe una interacción válida.
+            video.autoplay = false;
             video.muted = true;
             video.defaultMuted = true;
             video.volume = 0;
@@ -105,7 +108,6 @@ function crearCarrusel(archivos) {
             video.disablePictureInPicture = true;
             video.disableRemotePlayback = true;
             video.tabIndex = -1;
-            video.setAttribute('autoplay', '');
             video.setAttribute('muted', '');
             video.setAttribute('playsinline', '');
             video.setAttribute('webkit-playsinline', '');
@@ -168,7 +170,7 @@ function crearCarrusel(archivos) {
                 }
             });
             video.addEventListener('canplay', () => {
-                if (slide.classList.contains('active')) {
+                if (carruselIniciado && slide.classList.contains('active')) {
                     intentarReproducirVideo(video);
                 }
             });
@@ -229,13 +231,15 @@ function detenerAnimacionVideo(video) {
 function intentarReproducirVideo(video) {
     const videoActual = elementosCarrusel[indiceActual]?.querySelector('video');
 
-    if (videoActual !== video || !video.paused || video.ended) {
+    if (!carruselIniciado || videoActual !== video || !video.paused || video.ended) {
         return;
     }
 
     video.muted = true;
     video.defaultMuted = true;
     video.volume = 0;
+    video.autoplay = true;
+    video.setAttribute('autoplay', '');
 
     const reproduccion = video.play();
 
@@ -297,6 +301,8 @@ function mostrarElemento(indice) {
 
             video.pause();
             video.currentTime = 0;
+            video.autoplay = false;
+            video.removeAttribute('autoplay');
         }
     });
 
@@ -305,6 +311,10 @@ function mostrarElemento(indice) {
     const slideActual = elementosCarrusel[indiceActual];
 
     slideActual.classList.add('active');
+
+    if (!carruselIniciado) {
+        return;
+    }
 
     const video = slideActual.querySelector('video');
 
@@ -316,6 +326,43 @@ function mostrarElemento(indice) {
             siguienteElemento();
         }, DURACION_IMAGEN);
     }
+}
+
+// La primera pulsación desbloquea el autoplay del navegador de la TV. Luego
+// el carrusel avanza por todos los elementos y vuelve al primero sin más
+// interacción.
+function iniciarCarrusel() {
+    const botonInicio = document.getElementById('boton-inicio');
+
+    if (
+        (carruselIniciado && botonInicio?.hidden !== false) ||
+        elementosCarrusel.length === 0
+    ) {
+        return;
+    }
+
+    carruselIniciado = true;
+
+    const videoActual = elementosCarrusel[indiceActual]?.querySelector('video');
+
+    if (videoActual) {
+        // Ocultar el botón solamente cuando el navegador confirma que el video
+        // comenzó. Si play() es rechazado, queda disponible para reintentar.
+        videoActual.addEventListener(
+            'playing',
+            () => {
+                if (botonInicio) {
+                    botonInicio.hidden = true;
+                }
+            },
+            { once: true }
+        );
+    } else if (botonInicio) {
+        // Las imágenes no necesitan desbloqueo de autoplay.
+        botonInicio.hidden = true;
+    }
+
+    mostrarElemento(indiceActual);
 }
 
 // Pasar al siguiente elemento
@@ -336,15 +383,27 @@ async function inicializarCarrusel() {
 
     if (archivos.length === 0) {
         console.warn('No hay archivos disponibles para el carrusel.');
+
+        const botonInicio = document.getElementById('boton-inicio');
+
+        if (botonInicio) {
+            botonInicio.hidden = true;
+        }
+
         return;
     }
 
     crearCarrusel(archivos);
 
+    // Mostrar el primer elemento, pero esperar el toque inicial para empezar
+    // a reproducir medios o avanzar automáticamente.
     mostrarElemento(0);
 }
 
 // Ejecutar cuando cargue el DOM
 document.addEventListener('DOMContentLoaded', () => {
+    const botonInicio = document.getElementById('boton-inicio');
+
+    botonInicio?.addEventListener('click', iniciarCarrusel);
     inicializarCarrusel();
 });
