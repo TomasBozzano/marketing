@@ -10,6 +10,7 @@ const ROTACION = 'rotate(90deg)';
 let elementosCarrusel = [];
 let indiceActual = 0;
 let timeoutCarrusel = null;
+const animacionesVideo = new WeakMap();
 
 // Obtener archivos de Supabase
 async function obtenerArchivos() {
@@ -80,35 +81,88 @@ function crearCarrusel(archivos) {
         let elementoMedia;
 
         if (archivo.tipo === 'VIDEO') {
-            elementoMedia = document.createElement('video');
+            const video = document.createElement('video');
+            const canvas = document.createElement('canvas');
+            const contexto = canvas.getContext('2d');
 
-            elementoMedia.autoplay = true;
-            elementoMedia.muted = true;
-            elementoMedia.defaultMuted = true;
-            elementoMedia.controls = false;
-            elementoMedia.playsInline = true;
-            elementoMedia.setAttribute('autoplay', '');
-            elementoMedia.setAttribute('muted', '');
-            elementoMedia.setAttribute('playsinline', '');
-            elementoMedia.preload = 'auto';
+            if (!contexto) {
+                console.error('No se pudo crear el canvas para:', archivo.nombre);
+                return;
+            }
+
+            video.autoplay = true;
+            video.muted = true;
+            video.defaultMuted = true;
+            video.controls = false;
+            video.playsInline = true;
+            video.crossOrigin = 'anonymous';
+            video.setAttribute('autoplay', '');
+            video.setAttribute('muted', '');
+            video.setAttribute('playsinline', '');
+            video.setAttribute('disablepictureinpicture', '');
+            video.preload = 'auto';
 
             const source = document.createElement('source');
             source.src = archivo.url;
             source.type = archivo.mimeType;
 
-            elementoMedia.appendChild(source);
-            elementoMedia.load();
+            video.appendChild(source);
+
+            const dibujarFotograma = () => {
+                if (video.paused || video.ended) {
+                    return;
+                }
+
+                if (
+                    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+                    canvas.width > 0 &&
+                    canvas.height > 0
+                ) {
+                    contexto.drawImage(
+                        video,
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    );
+                }
+
+                animacionesVideo.set(
+                    video,
+                    requestAnimationFrame(dibujarFotograma)
+                );
+            };
+
+            video.addEventListener('loadedmetadata', () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            });
+
+            video.addEventListener('playing', dibujarFotograma);
+            video.addEventListener('pause', () => {
+                cancelAnimationFrame(animacionesVideo.get(video));
+            });
+            video.addEventListener('loadeddata', () => {
+                if (video.paused === false) {
+                    dibujarFotograma();
+                }
+            });
 
             // Avanzar cuando termine el video
-            elementoMedia.addEventListener('ended', () => {
+            video.addEventListener('ended', () => {
                 siguienteElemento();
             });
 
             // Si ocurre un error de reproducción, avanzar
-            elementoMedia.addEventListener('error', () => {
+            video.addEventListener('error', () => {
                 console.error('Error cargando video:', archivo.nombre);
                 siguienteElemento();
             });
+
+            video.load();
+            video.classList.add('video-source');
+            elementoMedia = canvas;
+            elementoMedia.dataset.videoSource = archivo.nombre;
 
         } else {
             elementoMedia = document.createElement('img');
