@@ -33,7 +33,6 @@ let elementosCarrusel = [];
 let indiceActual = 0;
 let timeoutCarrusel = null;
 let carruselIniciado = false;
-const animacionesVideo = new WeakMap();
 const reintentosVideo = new WeakMap();
 const temporizadoresFinVideo = new WeakMap();
 
@@ -151,17 +150,7 @@ function crearCarrusel(archivos) {
 
         if (archivo.tipo === 'VIDEO') {
             const video = document.createElement('video');
-            const canvas = document.createElement('canvas');
-            const contexto = canvas.getContext('2d');
 
-            if (!contexto) {
-                console.error('No se pudo crear el canvas para:', archivo.nombre);
-                return;
-            }
-
-            // El video nunca se muestra directamente: solo se usa como fuente
-            // para el canvas. Así el navegador de la TV no puede abrir sus
-            // controles ni mostrar el popup nativo de reproducción.
             // El autoplay se activa únicamente después de pulsar el botón de
             // inicio. Así el navegador de la TV recibe una interacción válida.
             video.autoplay = false;
@@ -170,8 +159,7 @@ function crearCarrusel(archivos) {
             video.volume = 0;
             video.controls = false;
             video.playsInline = true;
-            video.preload = 'auto';
-            video.crossOrigin = 'anonymous';
+            video.preload = 'metadata';
             video.disablePictureInPicture = true;
             video.disableRemotePlayback = true;
             video.tabIndex = -1;
@@ -186,59 +174,11 @@ function crearCarrusel(archivos) {
             );
             video.setAttribute('aria-hidden', 'true');
             video.src = archivo.url;
-
-            const dibujarFotograma = () => {
-                if (video.paused || video.ended) {
-                    return;
-                }
-
-                if (
-                    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-                    canvas.width > 0 &&
-                    canvas.height > 0
-                ) {
-                    try {
-                        contexto.drawImage(
-                            video,
-                            0,
-                            0,
-                            canvas.width,
-                            canvas.height
-                        );
-                    } catch (error) {
-                        console.error(
-                            'No se pudo dibujar el video en el canvas:',
-                            archivo.nombre,
-                            error
-                        );
-                        detenerAnimacionVideo(video);
-                        return;
-                    }
-                }
-
-                animacionesVideo.set(
-                    video,
-                    requestAnimationFrame(dibujarFotograma)
-                );
-            };
-
-            video.addEventListener('loadedmetadata', () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-            });
-
-            video.addEventListener('playing', dibujarFotograma);
             video.addEventListener('playing', () => {
                 programarFinVideo(video, slide);
             });
             video.addEventListener('pause', () => {
-                detenerAnimacionVideo(video);
                 limpiarTemporizadorFinVideo(video);
-            });
-            video.addEventListener('loadeddata', () => {
-                if (!video.paused && !video.ended) {
-                    dibujarFotograma();
-                }
             });
             video.addEventListener('canplay', () => {
                 if (carruselIniciado && slide.classList.contains('active')) {
@@ -260,9 +200,8 @@ function crearCarrusel(archivos) {
             });
 
             video.load();
-            elementoMedia = canvas;
+            elementoMedia = video;
             elementoMedia.dataset.videoSource = archivo.nombre;
-            elementoMedia.setAttribute('aria-hidden', 'true');
 
         } else {
             elementoMedia = document.createElement('img');
@@ -283,16 +222,6 @@ function crearCarrusel(archivos) {
     elementosCarrusel = Array.from(
         contenedor.querySelectorAll('.fade-carousel')
     );
-}
-
-// Cancelar el repintado del video cuando deja de ser visible.
-function detenerAnimacionVideo(video) {
-    const frame = animacionesVideo.get(video);
-
-    if (frame) {
-        cancelAnimationFrame(frame);
-        animacionesVideo.delete(video);
-    }
 }
 
 function limpiarTemporizadorFinVideo(video) {
@@ -410,7 +339,6 @@ function mostrarElemento(indice) {
         const video = slide.querySelector('video');
 
         if (video) {
-            detenerAnimacionVideo(video);
             limpiarTemporizadorFinVideo(video);
 
             const reintento = reintentosVideo.get(video);

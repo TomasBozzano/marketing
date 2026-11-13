@@ -103,8 +103,8 @@ html, body {
     pointer-events: none;
 }
 
-/* El canvas es la única superficie visible de los videos. */
-canvas.fade-image {
+/* El video activo es la única superficie visible del medio. */
+video.fade-image {
     display: block;
 }
 
