@@ -43,12 +43,12 @@ async function obtenerArchivos() {
                 .storage
                 .from(BUCKET)
                 .getPublicUrl(`${CARPETA}/${archivo.name}`);
+            const mimeType = archivo.metadata?.mimetype || '';
 
             return {
                 nombre: archivo.name,
-                tipo: archivo.metadata.mimetype.startsWith('video/')
-                    ? 'VIDEO'
-                    : 'IMAGEN',
+                tipo: mimeType.startsWith('video/') ? 'VIDEO' : 'IMAGEN',
+                mimeType,
                 url: urlData.publicUrl
             };
         });
@@ -84,14 +84,20 @@ function crearCarrusel(archivos) {
 
             elementoMedia.autoplay = true;
             elementoMedia.muted = true;
+            elementoMedia.defaultMuted = true;
+            elementoMedia.controls = false;
             elementoMedia.playsInline = true;
-            elementoMedia.preload = 'metadata';
+            elementoMedia.setAttribute('autoplay', '');
+            elementoMedia.setAttribute('muted', '');
+            elementoMedia.setAttribute('playsinline', '');
+            elementoMedia.preload = 'auto';
 
             const source = document.createElement('source');
             source.src = archivo.url;
-            source.type = 'video/mp4';
+            source.type = archivo.mimeType;
 
             elementoMedia.appendChild(source);
+            elementoMedia.load();
 
             // Avanzar cuando termine el video
             elementoMedia.addEventListener('ended', () => {
