@@ -11,6 +11,7 @@ let elementosCarrusel = [];
 let indiceActual = 0;
 let timeoutCarrusel = null;
 const animacionesVideo = new WeakMap();
+const reintentosVideo = new WeakMap();
 
 // Obtener archivos de Supabase
 async function obtenerArchivos() {
@@ -90,23 +91,32 @@ function crearCarrusel(archivos) {
                 return;
             }
 
+            // El video nunca se muestra directamente: solo se usa como fuente
+            // para el canvas. Así el navegador de la TV no puede abrir sus
+            // controles ni mostrar el popup nativo de reproducción.
             video.autoplay = true;
             video.muted = true;
             video.defaultMuted = true;
+            video.volume = 0;
             video.controls = false;
             video.playsInline = true;
+            video.preload = 'auto';
             video.crossOrigin = 'anonymous';
+            video.disablePictureInPicture = true;
+            video.disableRemotePlayback = true;
+            video.tabIndex = -1;
             video.setAttribute('autoplay', '');
             video.setAttribute('muted', '');
             video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
             video.setAttribute('disablepictureinpicture', '');
-            video.preload = 'auto';
-
-            const source = document.createElement('source');
-            source.src = archivo.url;
-            source.type = archivo.mimeType;
-
-            video.appendChild(source);
+            video.setAttribute('disableremoteplayback', '');
+            video.setAttribute(
+                'controlslist',
+                'nodownload nofullscreen noremoteplayback noplaybackrate'
+            );
+            video.setAttribute('aria-hidden', 'true');
+            video.src = archivo.url;
 
             const dibujarFotograma = () => {
                 if (video.paused || video.ended) {
@@ -118,13 +128,23 @@ function crearCarrusel(archivos) {
                     canvas.width > 0 &&
                     canvas.height > 0
                 ) {
-                    contexto.drawImage(
-                        video,
-                        0,
-                        0,
-                        canvas.width,
-                        canvas.height
-                    );
+                    try {
+                        contexto.drawImage(
+                            video,
+                            0,
+                            0,
+                            canvas.width,
+                            canvas.height
+                        );
+                    } catch (error) {
+                        console.error(
+                            'No se pudo dibujar el video en el canvas:',
+                            archivo.nombre,
+                            error
+                        );
+                        detenerAnimacionVideo(video);
+                        return;
+                    }
                 }
 
                 animacionesVideo.set(
@@ -140,29 +160,38 @@ function crearCarrusel(archivos) {
 
             video.addEventListener('playing', dibujarFotograma);
             video.addEventListener('pause', () => {
-                cancelAnimationFrame(animacionesVideo.get(video));
+                detenerAnimacionVideo(video);
             });
             video.addEventListener('loadeddata', () => {
-                if (video.paused === false) {
+                if (!video.paused && !video.ended) {
                     dibujarFotograma();
+                }
+            });
+            video.addEventListener('canplay', () => {
+                if (slide.classList.contains('active')) {
+                    intentarReproducirVideo(video);
                 }
             });
 
             // Avanzar cuando termine el video
             video.addEventListener('ended', () => {
-                siguienteElemento();
+                if (slide.classList.contains('active')) {
+                    siguienteElemento();
+                }
             });
 
             // Si ocurre un error de reproducción, avanzar
             video.addEventListener('error', () => {
                 console.error('Error cargando video:', archivo.nombre);
-                siguienteElemento();
+                if (slide.classList.contains('active')) {
+                    siguienteElemento();
+                }
             });
 
             video.load();
-            video.classList.add('video-source');
             elementoMedia = canvas;
             elementoMedia.dataset.videoSource = archivo.nombre;
+            elementoMedia.setAttribute('aria-hidden', 'true');
 
         } else {
             elementoMedia = document.createElement('img');
@@ -185,6 +214,63 @@ function crearCarrusel(archivos) {
     );
 }
 
+// Cancelar el repintado del video cuando deja de ser visible.
+function detenerAnimacionVideo(video) {
+    const frame = animacionesVideo.get(video);
+
+    if (frame) {
+        cancelAnimationFrame(frame);
+        animacionesVideo.delete(video);
+    }
+}
+
+// Reproducir siempre en silencio. Los reintentos son automáticos para evitar
+// depender de una pulsación en la pantalla de la TV.
+function intentarReproducirVideo(video) {
+    const videoActual = elementosCarrusel[indiceActual]?.querySelector('video');
+
+    if (videoActual !== video || !video.paused || video.ended) {
+        return;
+    }
+
+    video.muted = true;
+    video.defaultMuted = true;
+    video.volume = 0;
+
+    const reproduccion = video.play();
+
+    if (!reproduccion || typeof reproduccion.catch !== 'function') {
+        return;
+    }
+
+    reproduccion.catch(error => {
+        if (videoActual !== elementosCarrusel[indiceActual]?.querySelector('video')) {
+            return;
+        }
+
+        // AbortError aparece normalmente al cambiar de slide y no requiere
+        // reintento. NotAllowedError se reintenta sin mostrar controles.
+        if (error.name !== 'AbortError') {
+            if (error.name !== 'NotAllowedError') {
+                console.error('Error reproduciendo video:', error);
+            }
+
+            const reintentoAnterior = reintentosVideo.get(video);
+
+            if (reintentoAnterior) {
+                clearTimeout(reintentoAnterior);
+            }
+
+            const reintento = setTimeout(() => {
+                reintentosVideo.delete(video);
+                intentarReproducirVideo(video);
+            }, 1000);
+
+            reintentosVideo.set(video, reintento);
+        }
+    });
+}
+
 // Mostrar elemento actual
 function mostrarElemento(indice) {
     if (elementosCarrusel.length === 0) {
@@ -200,6 +286,15 @@ function mostrarElemento(indice) {
         const video = slide.querySelector('video');
 
         if (video) {
+            detenerAnimacionVideo(video);
+
+            const reintento = reintentosVideo.get(video);
+
+            if (reintento) {
+                clearTimeout(reintento);
+                reintentosVideo.delete(video);
+            }
+
             video.pause();
             video.currentTime = 0;
         }
@@ -214,12 +309,7 @@ function mostrarElemento(indice) {
     const video = slideActual.querySelector('video');
 
     if (video) {
-        video.play().catch(error => {
-            console.error('Error reproduciendo video:', error);
-
-            // Si el navegador no permite reproducirlo, avanzar
-            siguienteElemento();
-        });
+        intentarReproducirVideo(video);
 
     } else {
         timeoutCarrusel = setTimeout(() => {

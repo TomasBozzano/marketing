@@ -9,6 +9,10 @@ html, body {
     width: 100%;
     background: black;
     overflow: hidden;
+    cursor: none;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
 }
 
 #form-carrusel {
@@ -62,12 +66,17 @@ html, body {
     transform-origin: center center;
 
     background: black;
+    pointer-events: none;
 }
 
-.video-source {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
+/* El canvas es la única superficie visible de los videos. */
+canvas.fade-image {
+    display: block;
+}
+
+/* Evita que navegadores WebKit/Smart TV dibujen controles nativos. */
+video::-webkit-media-controls,
+video::-webkit-media-controls-enclosure,
+video::-webkit-media-controls-panel {
+    display: none !important;
 }
