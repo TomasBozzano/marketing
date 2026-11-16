@@ -1,6 +1,6 @@
 import { supabase } from './service/supabase.service.js';
 
-const BUCKET = 'public-arjun';
+const BUCKET = 'app-arjun-marketing';
 const CARPETA = '327/21';
 const DURACION_IMAGEN = 5000;
 const ROTACION = 'rotate(90deg)';
