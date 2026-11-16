@@ -43,7 +43,15 @@ const DEBUG_ACTIVO = parametrosPagina.get('debug') === '1';
 const ID_SESION_LOG = `tv-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`;
 let logsDiagnostico = [];
 let salidaLogs = null;
+let estadoLogs = null;
 let sincronizacionLogsEnCurso = false;
+let numeroSnapshotLog = 0;
+
+function obtenerRutaLog() {
+    numeroSnapshotLog += 1;
+
+    return `${CARPETA}/debug/${ID_SESION_LOG}-${String(numeroSnapshotLog).padStart(3, '0')}.txt`;
+}
 
 function formatearLogsTxt() {
     return [
@@ -66,8 +74,15 @@ function descargarLogsTxt() {
     enlace.href = url;
     enlace.download = `arjun-tv-${ID_SESION_LOG}.txt`;
     enlace.click();
+    actualizarEstadoLogs('Descarga TXT solicitada. Revisar carpeta Downloads.');
 
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function actualizarEstadoLogs(mensaje) {
+    if (estadoLogs) {
+        estadoLogs.textContent = mensaje;
+    }
 }
 
 async function sincronizarLogsTxt() {
@@ -76,27 +91,32 @@ async function sincronizarLogsTxt() {
     }
 
     sincronizacionLogsEnCurso = true;
+    const rutaLog = obtenerRutaLog();
 
     try {
         const { error } = await supabase
             .storage
             .from(BUCKET)
             .upload(
-                `debug/${ID_SESION_LOG}.txt`,
+                rutaLog,
                 new Blob([formatearLogsTxt()], {
                     type: 'text/plain;charset=utf-8'
                 }),
                 {
                     contentType: 'text/plain;charset=utf-8',
-                    upsert: true
+                    upsert: false
                 }
             );
 
         if (error) {
             console.warn('No se pudo sincronizar el log TXT:', error);
+            actualizarEstadoLogs(`Storage rechazó la subida: ${error.message}`);
+        } else {
+            actualizarEstadoLogs(`TXT guardado en: ${rutaLog}`);
         }
     } catch (error) {
         console.warn('Error sincronizando el log TXT:', error);
+        actualizarEstadoLogs(`Error de red al guardar TXT: ${error.message}`);
     } finally {
         sincronizacionLogsEnCurso = false;
     }
@@ -167,11 +187,13 @@ function crearPanelDiagnostico() {
                 <button type="button" data-debug-action="clear">Limpiar</button>
             </div>
         </header>
+        <small id="estado-log-tv">Sesión: ${ID_SESION_LOG}</small>
         <pre id="salida-logs-tv" aria-live="polite"></pre>
     `;
 
     document.body.appendChild(panel);
     salidaLogs = panel.querySelector('#salida-logs-tv');
+    estadoLogs = panel.querySelector('#estado-log-tv');
 
     panel.addEventListener('click', event => {
         const boton = event.target.closest('[data-debug-action]');
@@ -1029,6 +1051,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     botonInicio?.addEventListener('pointerdown', manejarInteraccionInicio);
     botonInicio?.addEventListener('keydown', manejarInteraccionInicio);
+    botonInicio?.addEventListener('click', manejarInteraccionInicio);
+    botonInicio?.addEventListener('touchstart', manejarInteraccionInicio);
+    botonInicio?.addEventListener('keyup', manejarInteraccionInicio);
+    botonInicio?.addEventListener('keypress', manejarInteraccionInicio);
     botonInicio?.addEventListener('click', iniciarCarrusel);
     inicializarCarrusel();
 });

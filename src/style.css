@@ -109,6 +109,12 @@ html, body {
     outline-offset: 1px;
 }
 
+#estado-log-tv {
+    display: block;
+    margin-bottom: 6px;
+    color: #e5ffe9;
+}
+
 #salida-logs-tv {
     max-height: calc(44vh - 54px);
     margin: 0;
