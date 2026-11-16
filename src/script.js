@@ -87,24 +87,23 @@ function crearMedia(archivo) {
         const video = document.createElement('video');
 
         video.src = archivo.url;
-        video.autoplay = true;
+        video.autoplay = false;
         video.muted = true;
         video.defaultMuted = true;
         video.playsInline = true;
-        video.controls = false;
-        video.preload = 'auto';
+        video.controls = true;
+        video.preload = 'metadata';
 
-        video.setAttribute('autoplay', '');
-        video.setAttribute('muted', '');
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
-        video.setAttribute(
-            'controlslist',
-            'nodownload nofullscreen noremoteplayback'
-        );
+        video.setAttribute('muted', '');
 
         video.addEventListener('ended', siguienteSlide);
-        video.addEventListener('error', siguienteSlide);
+
+        video.addEventListener('error', () => {
+            console.error('Error reproduciendo:', archivo.nombre, video.error);
+            siguienteSlide();
+        });
 
         return video;
     }
@@ -173,9 +172,13 @@ function mostrarSlide(indice) {
     slideActual.classList.add('active');
 
     if (mediaActual.tagName === 'VIDEO') {
-        mediaActual.play().catch(() => {
-            // El navegador puede exigir una interacción inicial.
+        console.log('Video preparado:', {
+            src: mediaActual.currentSrc || mediaActual.src,
+            playsInline: mediaActual.playsInline,
+            controls: mediaActual.controls,
+            readyState: mediaActual.readyState
         });
+
         return;
     }
 
