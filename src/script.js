@@ -40,6 +40,8 @@ const temporizadoresFinVideo = new WeakMap();
 const videosPorSlide = new WeakMap();
 const parametrosPagina = new URLSearchParams(window.location.search);
 const DEBUG_ACTIVO = parametrosPagina.get('debug') === '1';
+const TV_FORZADO = parametrosPagina.get('tv') === '1';
+const TV_DESACTIVADO = parametrosPagina.get('tv') === '0';
 const ID_SESION_LOG = `tv-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 8)}`;
 let logsDiagnostico = [];
 let salidaLogs = null;
@@ -270,14 +272,21 @@ function instalarCapturaDeInteracciones() {
 }
 
 const ES_ENTORNO_TV = (() => {
-    const parametros = new URLSearchParams(window.location.search);
     const userAgent = navigator.userAgent || '';
     const esAndroidSinMobile = /Android/i.test(userAgent) &&
         !/Mobile|Tablet/i.test(userAgent);
-
-    return parametros.get('tv') === '1' ||
-        /Android TV|GoogleTV|SmartTV|HbbTV|Tizen|Web0S|NetCast|BRAVIA|Viera/i.test(userAgent) ||
+    const deteccionAutomatica = /Android TV|GoogleTV|SmartTV|HbbTV|Tizen|Web0S|NetCast|BRAVIA|Viera/i.test(userAgent) ||
         esAndroidSinMobile;
+
+    if (TV_FORZADO) {
+        return true;
+    }
+
+    if (TV_DESACTIVADO) {
+        return false;
+    }
+
+    return deteccionAutomatica;
 })();
 
 function obtenerExtension(nombre) {
@@ -1030,6 +1039,8 @@ document.addEventListener('DOMContentLoaded', () => {
     registrarLog('app.start', {
         debug: DEBUG_ACTIVO,
         entornoTV: ES_ENTORNO_TV,
+        tvForzado: TV_FORZADO,
+        tvDesactivado: TV_DESACTIVADO,
         userAgent: navigator.userAgent,
         idioma: navigator.language,
         pantalla: {
