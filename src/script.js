@@ -86,6 +86,30 @@ function crearMedia(archivo) {
     if (archivo.tipo === 'VIDEO') {
         const video = document.createElement('video');
 
+        video.addEventListener('loadstart', () =>
+            diagnosticoVideo('LOADSTART', video));
+
+        video.addEventListener('loadedmetadata', () =>
+            diagnosticoVideo('LOADEDMETADATA', video));
+
+        video.addEventListener('loadeddata', () =>
+            diagnosticoVideo('LOADEDDATA', video));
+
+        video.addEventListener('canplay', () =>
+            diagnosticoVideo('CANPLAY', video));
+
+        video.addEventListener('playing', () =>
+            diagnosticoVideo('PLAYING', video));
+
+        video.addEventListener('waiting', () =>
+            diagnosticoVideo('WAITING', video));
+
+        video.addEventListener('stalled', () =>
+            diagnosticoVideo('STALLED', video));
+
+        video.addEventListener('error', () =>
+            diagnosticoVideo('ERROR', video));
+
         video.src = archivo.url;
         video.autoplay = false;
         video.muted = true;
@@ -172,17 +196,40 @@ function mostrarSlide(indice) {
     slideActual.classList.add('active');
 
     if (mediaActual.tagName === 'VIDEO') {
-        console.log('Video preparado:', {
-            src: mediaActual.currentSrc || mediaActual.src,
-            playsInline: mediaActual.playsInline,
-            controls: mediaActual.controls,
-            readyState: mediaActual.readyState
-        });
+
+        mediaActual.play()
+            .then(() => {
+                diagnosticoVideo('PLAY PROMISE RESUELTA', mediaActual);
+            })
+            .catch(error => {
+                diagnosticoVideo(
+                    `PLAY RECHAZADO: ${error.name} - ${error.message}`,
+                    mediaActual
+                );
+            });
 
         return;
     }
 
     temporizador = setTimeout(siguienteSlide, DURACION_IMAGEN);
+}
+
+function diagnosticoVideo(mensaje, video = null) {
+    const panel = document.getElementById('diagnostico-video');
+    if (!panel) return;
+
+    const datos = video ? `
+                URL: ${video.currentSrc || video.src}
+                readyState: ${video.readyState}
+                networkState: ${video.networkState}
+                error: ${video.error?.code || 'ninguno'}
+                errorMessage: ${video.error?.message || 'sin mensaje'}
+                paused: ${video.paused}
+                currentTime: ${video.currentTime}
+                ` : '';
+
+    panel.textContent =
+        `${new Date().toLocaleTimeString()} - ${mensaje}\n${datos}`;
 }
 
 function siguienteSlide() {
